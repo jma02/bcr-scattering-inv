@@ -515,11 +515,11 @@ def main():
     _, Nt, Nr = output_array.shape
     
     # Process input array (frequency domain shift and concatenation)
-    Nd *= 2
-    tmp = input_array
-    tmp2 = np.concatenate([tmp[:, Ns//2:Ns, :], tmp[:, 0:Ns//2, :]], axis=1)
-    input_array = np.concatenate([tmp, tmp2], axis=2)
-    input_array = input_array[:, :, Nd//4:3*Nd//4]
+    # Nd *= 2
+    # tmp = input_array
+    # tmp2 = np.concatenate([tmp[:, Ns//2:Ns, :], tmp[:, 0:Ns//2, :]], axis=1)
+    # input_array = np.concatenate([tmp, tmp2], axis=2)
+    # input_array = input_array[:, :, Nd//4:3*Nd//4]
     
     Ns, Nd = input_array.shape[1], input_array.shape[2]
     n_input = (Ns, Nd)
