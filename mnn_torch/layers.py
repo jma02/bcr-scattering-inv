@@ -153,16 +153,13 @@ class CNNR1D(nn.Module):
                  activation: Optional[str] = 'linear',
                  bias: bool = True):
         super().__init__()
-        self.conv = nn.Conv1d(
-            in_channels=1,  # Will be adjusted in forward
-            out_channels=out_channels,
-            kernel_size=kernel_size,
-            stride=kernel_size,
-            padding=0,
-            dilation=dilation,
-            bias=bias
-        )
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.dilation = dilation
+        self.bias = bias
+        self.conv = None  # Will be initialized on first forward pass
         self.activation = self._get_activation(activation)
+        self._initialized = False
         
     def _get_activation(self, activation: Optional[str]) -> Optional[Callable]:
         if activation == 'relu':
@@ -172,21 +169,28 @@ class CNNR1D(nn.Module):
         else:
             raise ValueError(f"Unsupported activation: {activation}")
     
+    def _initialize_conv(self, in_channels: int, device: torch.device, dtype: torch.dtype):
+        """Initialize conv layer with proper input channels."""
+        if not self._initialized:
+            self.conv = nn.Conv1d(
+                in_channels=in_channels,
+                out_channels=self.out_channels,
+                kernel_size=self.kernel_size,
+                stride=self.kernel_size,
+                padding=0,
+                dilation=self.dilation,
+                bias=self.bias
+            ).to(device=device, dtype=dtype)
+            self._initialized = True
+    
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x shape: (batch, length, channels)
         # Convert to (batch, channels, length) for conv1d
         x = x.transpose(1, 2)
         
-        # Update conv layer input channels if needed
-        if self.conv.in_channels != x.size(1):
-            self.conv.in_channels = x.size(1)
-            # Reinitialize weight with correct input channels on the same device
-            device = x.device
-            with torch.no_grad():
-                self.conv.weight = nn.Parameter(
-                    torch.randn(self.conv.out_channels, x.size(1), self.conv.kernel_size[0], 
-                               device=device, dtype=x.dtype) * 0.1
-                )
+        # Initialize conv layer if needed
+        if not self._initialized:
+            self._initialize_conv(x.size(1), x.device, x.dtype)
         
         out = self.conv(x)
         if self.activation:
@@ -221,17 +225,12 @@ class CNNK1D(nn.Module):
         self.bc_padding = bc_padding
         self.kernel_size = kernel_size
         self.padding_size = kernel_size // 2
-        
-        self.conv = nn.Conv1d(
-            in_channels=1,  # Will be set dynamically
-            out_channels=out_channels,
-            kernel_size=kernel_size,
-            stride=1,
-            padding=0,
-            dilation=dilation,
-            bias=bias
-        )
+        self.out_channels = out_channels
+        self.dilation = dilation
+        self.bias = bias
+        self.conv = None
         self.activation = self._get_activation(activation)
+        self._initialized = False
         
     def _get_activation(self, activation: Optional[str]) -> Optional[Callable]:
         if activation == 'relu':
@@ -240,6 +239,20 @@ class CNNK1D(nn.Module):
             return None
         else:
             raise ValueError(f"Unsupported activation: {activation}")
+    
+    def _initialize_conv(self, in_channels: int, device: torch.device, dtype: torch.dtype):
+        """Initialize conv layer with proper input channels."""
+        if not self._initialized:
+            self.conv = nn.Conv1d(
+                in_channels=in_channels,
+                out_channels=self.out_channels,
+                kernel_size=self.kernel_size,
+                stride=1,
+                padding=0,
+                dilation=self.dilation,
+                bias=self.bias
+            ).to(device=device, dtype=dtype)
+            self._initialized = True
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x shape: (batch, length, channels)
@@ -255,16 +268,9 @@ class CNNK1D(nn.Module):
         # Convert to (batch, channels, length) for conv1d
         x = x.transpose(1, 2)
         
-        # Update conv layer input channels if needed
-        if self.conv.in_channels != x.size(1):
-            self.conv.in_channels = x.size(1)
-            # Reinitialize weight with correct input channels on the same device
-            device = x.device
-            with torch.no_grad():
-                self.conv.weight = nn.Parameter(
-                    torch.randn(self.conv.out_channels, x.size(1), self.conv.kernel_size[0], 
-                               device=device, dtype=x.dtype) * 0.1
-                )
+        # Initialize conv layer if needed
+        if not self._initialized:
+            self._initialize_conv(x.size(1), x.device, x.dtype)
         
         out = self.conv(x)
         if self.activation:
@@ -288,15 +294,11 @@ class CNNI1D(nn.Module):
                  bias: bool = True):
         super().__init__()
         self.Nout = Nout
-        self.conv = nn.Conv1d(
-            in_channels=1,  # Will be set dynamically
-            out_channels=out_channels,
-            kernel_size=1,
-            stride=1,
-            padding=0,
-            bias=bias
-        )
+        self.out_channels = out_channels
+        self.bias = bias
+        self.conv = None
         self.activation = self._get_activation(activation)
+        self._initialized = False
     
     def _get_activation(self, activation: str) -> Optional[Callable]:
         if activation == 'relu':
@@ -306,22 +308,28 @@ class CNNI1D(nn.Module):
         else:
             raise ValueError(f"Unsupported activation: {activation}")
     
+    def _initialize_conv(self, in_channels: int, device: torch.device, dtype: torch.dtype):
+        """Initialize conv layer with proper input channels."""
+        if not self._initialized:
+            self.conv = nn.Conv1d(
+                in_channels=in_channels,
+                out_channels=self.out_channels,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+                bias=self.bias
+            ).to(device=device, dtype=dtype)
+            self._initialized = True
+    
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x shape: (batch, length, channels)
         
         # Convert to (batch, channels, length) for conv1d
         x = x.transpose(1, 2)
         
-        # Update conv layer input channels if needed
-        if self.conv.in_channels != x.size(1):
-            self.conv.in_channels = x.size(1)
-            # Reinitialize weight with correct input channels on the same device
-            device = x.device
-            with torch.no_grad():
-                self.conv.weight = nn.Parameter(
-                    torch.randn(self.conv.out_channels, x.size(1), 1, 
-                               device=device, dtype=x.dtype) * 0.1
-                )
+        # Initialize conv layer if needed
+        if not self._initialized:
+            self._initialize_conv(x.size(1), x.device, x.dtype)
         
         out = self.conv(x)
         if self.activation:
@@ -363,17 +371,12 @@ class WaveLetC1D(nn.Module):
         self.bc_padding = bc_padding
         self.kernel_size = kernel_size
         self.padding_size = kernel_size // 2 - 1 if kernel_size > 2 else 0
-        
-        self.conv = nn.Conv1d(
-            in_channels=1,  # Will be set dynamically
-            out_channels=out_channels,
-            kernel_size=kernel_size,
-            stride=2,
-            padding=0,
-            dilation=dilation,
-            bias=bias
-        )
+        self.out_channels = out_channels
+        self.dilation = dilation
+        self.bias = bias
+        self.conv = None
         self.activation = self._get_activation(activation)
+        self._initialized = False
     
     def _get_activation(self, activation: str) -> Optional[Callable]:
         if activation == 'relu':
@@ -382,6 +385,20 @@ class WaveLetC1D(nn.Module):
             return None
         else:
             raise ValueError(f"Unsupported activation: {activation}")
+    
+    def _initialize_conv(self, in_channels: int, device: torch.device, dtype: torch.dtype):
+        """Initialize conv layer with proper input channels."""
+        if not self._initialized:
+            self.conv = nn.Conv1d(
+                in_channels=in_channels,
+                out_channels=self.out_channels,
+                kernel_size=self.kernel_size,
+                stride=2,
+                padding=0,
+                dilation=self.dilation,
+                bias=self.bias
+            ).to(device=device, dtype=dtype)
+            self._initialized = True
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x shape: (batch, length, channels)
@@ -398,16 +415,9 @@ class WaveLetC1D(nn.Module):
         # Convert to (batch, channels, length) for conv1d
         x = x.transpose(1, 2)
         
-        # Update conv layer input channels if needed
-        if self.conv.in_channels != x.size(1):
-            self.conv.in_channels = x.size(1)
-            # Reinitialize weight with correct input channels on the same device
-            device = x.device
-            with torch.no_grad():
-                self.conv.weight = nn.Parameter(
-                    torch.randn(self.conv.out_channels, x.size(1), self.conv.kernel_size[0], 
-                               device=device, dtype=x.dtype) * 0.1
-                )
+        # Initialize conv layer if needed
+        if not self._initialized:
+            self._initialize_conv(x.size(1), x.device, x.dtype)
         
         out = self.conv(x)
         if self.activation:
@@ -445,17 +455,12 @@ class InvWaveLetC1D(nn.Module):
         self.kernel_size = kernel_size
         self.padding_size = kernel_size // 2
         self.Nout = Nout
-        
-        self.conv = nn.Conv1d(
-            in_channels=1,  # Will be set dynamically
-            out_channels=out_channels,
-            kernel_size=kernel_size,
-            stride=1,
-            padding=0,
-            dilation=dilation,
-            bias=bias
-        )
+        self.out_channels = out_channels
+        self.dilation = dilation
+        self.bias = bias
+        self.conv = None
         self.activation = self._get_activation(activation)
+        self._initialized = False
     
     def _get_activation(self, activation: str) -> Optional[Callable]:
         if activation == 'relu':
@@ -464,6 +469,20 @@ class InvWaveLetC1D(nn.Module):
             return None
         else:
             raise ValueError(f"Unsupported activation: {activation}")
+    
+    def _initialize_conv(self, in_channels: int, device: torch.device, dtype: torch.dtype):
+        """Initialize conv layer with proper input channels."""
+        if not self._initialized:
+            self.conv = nn.Conv1d(
+                in_channels=in_channels,
+                out_channels=self.out_channels,
+                kernel_size=self.kernel_size,
+                stride=1,
+                padding=0,
+                dilation=self.dilation,
+                bias=self.bias
+            ).to(device=device, dtype=dtype)
+            self._initialized = True
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x shape: (batch, length, channels)
@@ -479,16 +498,9 @@ class InvWaveLetC1D(nn.Module):
         # Convert to (batch, channels, length) for conv1d
         x = x.transpose(1, 2)
         
-        # Update conv layer input channels if needed
-        if self.conv.in_channels != x.size(1):
-            self.conv.in_channels = x.size(1)
-            # Reinitialize weight with correct input channels on the same device
-            device = x.device
-            with torch.no_grad():
-                self.conv.weight = nn.Parameter(
-                    torch.randn(self.conv.out_channels, x.size(1), self.conv.kernel_size[0], 
-                               device=device, dtype=x.dtype) * 0.1
-                )
+        # Initialize conv layer if needed
+        if not self._initialized:
+            self._initialize_conv(x.size(1), x.device, x.dtype)
         
         out = self.conv(x)
         if self.activation:
@@ -520,15 +532,12 @@ class CNNR2D(nn.Module):
         if isinstance(kernel_size, int):
             kernel_size = (kernel_size, kernel_size)
         
-        self.conv = nn.Conv2d(
-            in_channels=1,  # Will be set dynamically
-            out_channels=out_channels,
-            kernel_size=kernel_size,
-            stride=kernel_size,
-            padding=0,
-            bias=bias
-        )
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.bias = bias
+        self.conv = None
         self.activation = self._get_activation(activation)
+        self._initialized = False
     
     def _get_activation(self, activation: str) -> Optional[Callable]:
         if activation == 'relu':
@@ -538,22 +547,27 @@ class CNNR2D(nn.Module):
         else:
             raise ValueError(f"Unsupported activation: {activation}")
     
+    def _initialize_conv(self, in_channels: int, device: torch.device, dtype: torch.dtype):
+        """Initialize conv layer with proper input channels."""
+        if not self._initialized:
+            self.conv = nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=self.out_channels,
+                kernel_size=self.kernel_size,
+                stride=self.kernel_size,
+                padding=0,
+                bias=self.bias
+            ).to(device=device, dtype=dtype)
+            self._initialized = True
+    
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x shape: (batch, height, width, channels)
         # Convert to (batch, channels, height, width) for conv2d
         x = x.permute(0, 3, 1, 2)
         
-        # Update conv layer input channels if needed
-        if self.conv.in_channels != x.size(1):
-            self.conv.in_channels = x.size(1)
-            # Reinitialize weight with correct input channels on the same device
-            device = x.device
-            with torch.no_grad():
-                kh, kw = self.conv.kernel_size
-                self.conv.weight = nn.Parameter(
-                    torch.randn(self.conv.out_channels, x.size(1), kh, kw, 
-                               device=device, dtype=x.dtype) * 0.1
-                )
+        # Initialize conv layer if needed
+        if not self._initialized:
+            self._initialize_conv(x.size(1), x.device, x.dtype)
         
         out = self.conv(x)
         if self.activation:
@@ -580,16 +594,11 @@ class CNNK2D(nn.Module):
         self.bc_padding = bc_padding
         self.kernel_size = kernel_size
         self.padding_size = tuple(k // 2 for k in kernel_size)
-        
-        self.conv = nn.Conv2d(
-            in_channels=1,  # Will be set dynamically
-            out_channels=out_channels,
-            kernel_size=kernel_size,
-            stride=1,
-            padding=0,
-            bias=bias
-        )
+        self.out_channels = out_channels
+        self.bias = bias
+        self.conv = None
         self.activation = self._get_activation(activation)
+        self._initialized = False
     
     def _get_activation(self, activation: Optional[str]) -> Optional[Callable]:
         if activation == 'relu':
@@ -598,6 +607,19 @@ class CNNK2D(nn.Module):
             return None
         else:
             raise ValueError(f"Unsupported activation: {activation}")
+    
+    def _initialize_conv(self, in_channels: int, device: torch.device, dtype: torch.dtype):
+        """Initialize conv layer with proper input channels."""
+        if not self._initialized:
+            self.conv = nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=self.out_channels,
+                kernel_size=self.kernel_size,
+                stride=1,
+                padding=0,
+                bias=self.bias
+            ).to(device=device, dtype=dtype)
+            self._initialized = True
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x shape: (batch, height, width, channels)
@@ -614,17 +636,9 @@ class CNNK2D(nn.Module):
         # Convert to (batch, channels, height, width) for conv2d
         x = x.permute(0, 3, 1, 2)
         
-        # Update conv layer input channels if needed
-        if self.conv.in_channels != x.size(1):
-            self.conv.in_channels = x.size(1)
-            # Reinitialize weight with correct input channels on the same device
-            device = x.device
-            with torch.no_grad():
-                kh, kw = self.conv.kernel_size
-                self.conv.weight = nn.Parameter(
-                    torch.randn(self.conv.out_channels, x.size(1), kh, kw, 
-                               device=device, dtype=x.dtype) * 0.1
-                )
+        # Initialize conv layer if needed
+        if not self._initialized:
+            self._initialize_conv(x.size(1), x.device, x.dtype)
         
         out = self.conv(x)
         if self.activation:
@@ -644,15 +658,11 @@ class CNNI2D(nn.Module):
                  bias: bool = True):
         super().__init__()
         self.Nout = Nout
-        self.conv = nn.Conv2d(
-            in_channels=1,  # Will be set dynamically
-            out_channels=out_channels,
-            kernel_size=1,
-            stride=1,
-            padding=0,
-            bias=bias
-        )
+        self.out_channels = out_channels
+        self.bias = bias
+        self.conv = None
         self.activation = self._get_activation(activation)
+        self._initialized = False
     
     def _get_activation(self, activation: str) -> Optional[Callable]:
         if activation == 'relu':
@@ -662,22 +672,28 @@ class CNNI2D(nn.Module):
         else:
             raise ValueError(f"Unsupported activation: {activation}")
     
+    def _initialize_conv(self, in_channels: int, device: torch.device, dtype: torch.dtype):
+        """Initialize conv layer with proper input channels."""
+        if not self._initialized:
+            self.conv = nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=self.out_channels,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+                bias=self.bias
+            ).to(device=device, dtype=dtype)
+            self._initialized = True
+    
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x shape: (batch, height, width, channels)
         
         # Convert to (batch, channels, height, width) for conv2d
         x = x.permute(0, 3, 1, 2)
         
-        # Update conv layer input channels if needed
-        if self.conv.in_channels != x.size(1):
-            self.conv.in_channels = x.size(1)
-            # Reinitialize weight with correct input channels on the same device
-            device = x.device
-            with torch.no_grad():
-                self.conv.weight = nn.Parameter(
-                    torch.randn(self.conv.out_channels, x.size(1), 1, 1, 
-                               device=device, dtype=x.dtype) * 0.1
-                )
+        # Initialize conv layer if needed
+        if not self._initialized:
+            self._initialize_conv(x.size(1), x.device, x.dtype)
         
         out = self.conv(x)
         if self.activation:

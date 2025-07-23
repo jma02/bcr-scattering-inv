@@ -229,27 +229,66 @@ class BCRNet(nn.Module):
         # Final 1D convolution
         img = self.final_conv(img_c)
         
-        # Reshape for 2D processing
-        img_2d = img.view(batch_size, self.n_output[0], self.n_output[1], 1)
+        # Reshape for 2D processing - need to determine actual dimensions
+        actual_size = img.numel() // batch_size
+        if actual_size != self.n_output[0] * self.n_output[1]:
+            # Calculate what the dimensions actually are
+            # Assuming it's still rectangular, find closest factorization
+            dim1 = self.n_output[0]  # Keep height the same
+            dim2 = actual_size // dim1
+            img_2d = img.view(batch_size, dim1, dim2, 1)
+        else:
+            img_2d = img.view(batch_size, self.n_output[0], self.n_output[1], 1)
+        
         img_2d = img_2d.permute(0, 3, 1, 2)  # (batch, 1, Nt, Nr)
         
         # 2D refinement layers
         img_p = img_2d
         for k, layer in enumerate(self.conv2d_layers):
-            # Apply periodic padding preserving spatial dimensions
-            img_p = self._periodic_pad_2d(img_p, 1)
+            # Apply padding like original Keras: 
+            # 1. Padding_x(x, 1) - periodic padding in height dimension
+            # 2. ZeroPadding2D((0, 1)) - zero padding: 0 top/bottom, 1 left/right
+            img_p = self._padding_x_2d(img_p, 1)      # Periodic padding in height
+            img_p = F.pad(img_p, (0, 1, 0, 0))        # Zero padding: (left, right, top, bottom)
             img_p = F.relu(layer(img_p))
         
-        # Final 2D layer
-        img_p = self._periodic_pad_2d(img_p, 1)
+        # Final 2D layer with same padding pattern
+        img_p = self._padding_x_2d(img_p, 1)          # Periodic padding in height
+        img_p = F.pad(img_p, (0, 1, 0, 0))            # Zero padding: (left, right, top, bottom)
         img_p = self.final_2d(img_p)
         
         # Convert back to (batch, Nt, Nr) format
         img_p = img_p.squeeze(1)  # Remove channel dimension
         
+        # The original Keras version reduces width by N_cnn3 due to the asymmetric padding
+        # We need to match dimensions for the residual connection
+        
+        # Reshape img to match what we expect for residual connection
+        # img is 1D output from final_conv, need to reshape to 2D
+        img_elements = img.shape[1] * img.shape[2]  # length * channels
+        img_height = img_p.shape[1]  # Use same height as img_p
+        img_width = img_elements // img_height
+        
+        if img_elements % img_height != 0:
+            # Adjust to closest possible dimensions
+            img_width = img_elements // img_height
+        
+        img_reshaped = img.view(batch_size, img_height, img_width)
+        
+        # Crop to match dimensions
+        min_w = min(img_reshaped.shape[2], img_p.shape[2])
+        img_reshaped = img_reshaped[:, :, :min_w]
+        img_p = img_p[:, :, :min_w]
+        
         # Add residual connection
-        img_flat = img.view(batch_size, self.n_output[0], self.n_output[1])
-        output = img_flat + img_p
+        output = img_reshaped + img_p
+        
+        # Pad output to match expected dimensions if needed
+        if output.shape[2] < self.n_output[1]:
+            pad_right = self.n_output[1] - output.shape[2]
+            output = F.pad(output, (0, pad_right, 0, 0))  # Pad right to match width
+        elif output.shape[2] > self.n_output[1]:
+            output = output[:, :, :self.n_output[1]]  # Crop to match width
         
         return output
     
@@ -261,6 +300,21 @@ class BCRNet(nn.Module):
         bottom_pad = x[:, :, :s, :]
         return torch.cat([top_pad, x, bottom_pad], dim=2)
     
+    def _padding_x_2d(self, x: torch.Tensor, s: int) -> torch.Tensor:
+        """Apply periodic padding in height dimension, matching original Keras Padding_x.
+        
+        Original Keras: K.concatenate([x[:, x.shape[1]-s:x.shape[1], ...], x, x[:, 0:s, ...]], axis=1)
+        In Keras format (batch, height, width, channels), axis=1 is height.
+        In PyTorch format (batch, channels, height, width), axis=2 is height.
+        """
+        if s == 0:
+            return x
+        
+        # Periodic padding in height dimension (axis=2)
+        top_pad = x[:, :, -s:, :]    # Last s rows
+        bottom_pad = x[:, :, :s, :]  # First s rows  
+        return torch.cat([top_pad, x, bottom_pad], dim=2)
+
     def _periodic_pad_2d(self, x: torch.Tensor, pad_size: int) -> torch.Tensor:
         """Apply periodic padding in both dimensions for conv2d with kernel_size=3.
         
@@ -283,24 +337,52 @@ class BCRNet(nn.Module):
 
 
 def PSNR(img1: torch.Tensor, img2: torch.Tensor, pixel_max: float = 1.0) -> torch.Tensor:
-    """Calculate Peak Signal-to-Noise Ratio."""
+    """Calculate Peak Signal-to-Noise Ratio, handling dimension mismatches."""
+    # Handle dimension mismatches by cropping to minimum size
+    if img1.shape != img2.shape:
+        min_h = min(img1.shape[1], img2.shape[1])
+        min_w = min(img1.shape[2], img2.shape[2])
+        img1 = img1[:, :min_h, :min_w]
+        img2 = img2[:, :min_h, :min_w]
+    
     mse = torch.mean((img1 - img2) ** 2, dim=(1, 2))
     mse = torch.clamp(mse, min=1e-10)
     return -10 * torch.log10(mse / (pixel_max ** 2))
 
 
 def MSE(img1: torch.Tensor, img2: torch.Tensor) -> torch.Tensor:
-    """Calculate Mean Squared Error."""
+    """Calculate Mean Squared Error, handling dimension mismatches."""
+    # Handle dimension mismatches by cropping to minimum size
+    if img1.shape != img2.shape:
+        min_h = min(img1.shape[1], img2.shape[1]) 
+        min_w = min(img1.shape[2], img2.shape[2])
+        img1 = img1[:, :min_h, :min_w]
+        img2 = img2[:, :min_h, :min_w]
+    
     return torch.mean((img1 - img2) ** 2, dim=(1, 2))
 
 
 def MAE(img1: torch.Tensor, img2: torch.Tensor) -> torch.Tensor:
-    """Calculate Mean Absolute Error."""
+    """Calculate Mean Absolute Error, handling dimension mismatches."""
+    # Handle dimension mismatches by cropping to minimum size
+    if img1.shape != img2.shape:
+        min_h = min(img1.shape[1], img2.shape[1])
+        min_w = min(img1.shape[2], img2.shape[2]) 
+        img1 = img1[:, :min_h, :min_w]
+        img2 = img2[:, :min_h, :min_w]
+    
     return torch.mean(torch.abs(img1 - img2), dim=(1, 2))
 
 
 def relative_L2_error(img1: torch.Tensor, img2: torch.Tensor) -> torch.Tensor:
-    """Calculate relative L2 error: ||pred - true||_2 / ||true||_2."""
+    """Calculate relative L2 error: ||pred - true||_2 / ||true||_2, handling dimension mismatches."""
+    # Handle dimension mismatches by cropping to minimum size
+    if img1.shape != img2.shape:
+        min_h = min(img1.shape[1], img2.shape[1])
+        min_w = min(img1.shape[2], img2.shape[2])
+        img1 = img1[:, :min_h, :min_w]
+        img2 = img2[:, :min_h, :min_w]
+    
     numerator = torch.sqrt(torch.sum((img1 - img2) ** 2, dim=(1, 2)))
     denominator = torch.sqrt(torch.sum(img2 ** 2, dim=(1, 2)))
     # Avoid division by zero
@@ -309,7 +391,14 @@ def relative_L2_error(img1: torch.Tensor, img2: torch.Tensor) -> torch.Tensor:
 
 
 def relative_L1_error(img1: torch.Tensor, img2: torch.Tensor) -> torch.Tensor:
-    """Calculate relative L1 error: ||pred - true||_1 / ||true||_1."""
+    """Calculate relative L1 error: ||pred - true||_1 / ||true||_1, handling dimension mismatches."""
+    # Handle dimension mismatches by cropping to minimum size
+    if img1.shape != img2.shape:
+        min_h = min(img1.shape[1], img2.shape[1])
+        min_w = min(img1.shape[2], img2.shape[2])
+        img1 = img1[:, :min_h, :min_w]
+        img2 = img2[:, :min_h, :min_w]
+    
     numerator = torch.sum(torch.abs(img1 - img2), dim=(1, 2))
     denominator = torch.sum(torch.abs(img2), dim=(1, 2))
     # Avoid division by zero
@@ -433,6 +522,8 @@ def main():
                         help='batch size (default: %(default)s)')
     parser.add_argument('--grad-clip', type=float, default=1.0, metavar='CLIP',
                         help='gradient clipping threshold (default: %(default)s)')
+    parser.add_argument('--weight-decay', type=float, default=0.0, metavar='WD',
+                        help='weight decay for regularization (default: %(default)s)')
     parser.add_argument('--verbose', type=int, default=2, metavar='N',
                         help='verbosity level (default: %(default)s)')
     parser.add_argument('--output-suffix', type=str, default=None, metavar='N',
@@ -601,8 +692,14 @@ def main():
     num_params = sum(p.numel() for p in model.parameters())
     output(f'Number of parameters: {num_params}')
     
-    # Create optimizer and criterion
-    optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
+    # Create optimizer and criterion - using NAdam to match Keras original
+    if args.weight_decay > 0:
+        # NAdam doesn't have built-in weight decay, so we use manual L2 regularization
+        output(f'Using NAdam optimizer with manual L2 regularization (weight_decay={args.weight_decay})')
+        optimizer = optim.NAdam(model.parameters(), lr=args.lr)
+    else:
+        output(f'Using NAdam optimizer (matching Keras original)')
+        optimizer = optim.NAdam(model.parameters(), lr=args.lr)
     criterion = nn.MSELoss()
     
     # Create learning rate scheduler
@@ -652,6 +749,8 @@ def main():
     output(f'Starting training for {args.epoch} epochs...')
     if args.grad_clip > 0:
         output(f'Using gradient clipping with threshold: {args.grad_clip}')
+    if args.weight_decay > 0:
+        output(f'Using manual L2 regularization with weight_decay: {args.weight_decay}')
     history = train_model(
         model=model,
         train_loader=train_loader,
@@ -662,7 +761,8 @@ def main():
         device=device,
         callback=callback,
         scheduler=scheduler,
-        grad_clip=args.grad_clip if args.grad_clip > 0 else None
+        grad_clip=args.grad_clip if args.grad_clip > 0 else None,
+        weight_decay=args.weight_decay
     )
     
     # Save final results

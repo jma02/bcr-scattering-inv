@@ -205,7 +205,8 @@ def train_model(model: torch.nn.Module,
                 device: torch.device,
                 callback: Optional[SaveBestModel] = None,
                 scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
-                grad_clip: Optional[float] = None) -> Dict[str, Any]:
+                grad_clip: Optional[float] = None,
+                weight_decay: float = 0.0) -> Dict[str, Any]:
     """Train a PyTorch model with optional callbacks.
     
     Args:
@@ -219,6 +220,7 @@ def train_model(model: torch.nn.Module,
         callback: Optional callback for model saving/early stopping
         scheduler: Optional learning rate scheduler
         grad_clip: Optional gradient clipping threshold (default: None)
+        weight_decay: Manual L2 regularization weight (default: 0.0)
     
     Returns:
         Dictionary with training history
@@ -244,6 +246,14 @@ def train_model(model: torch.nn.Module,
             optimizer.zero_grad()
             output = model(data)
             loss = criterion(output, target)
+            
+            # Add L2 regularization if weight_decay is specified
+            if weight_decay > 0:
+                l2_reg = torch.tensor(0.0, device=device)
+                for param in model.parameters():
+                    l2_reg += torch.norm(param)
+                loss += weight_decay * l2_reg
+            
             loss.backward()
             
             # Apply gradient clipping if specified
