@@ -1,7 +1,7 @@
 BCR-Net Scattering Inverse Problem - Results Summary
 ============================================================
 
-Data file: logs/S2ddataNc6Al2Ns011157bestdata.h5
+Data file: logs/S2ddataNc6Al40Ns0rubestdata.h5
 Number of samples: 100
 Image dimensions: (128, 128) pixels
 
@@ -9,27 +9,27 @@ Data Statistics:
 --------------------
 Input:
   Range: [-3.189724, 2.063381]
-  Mean: -0.004646
-  Std: 0.206560
+  Mean: -0.009597
+  Std: 0.276828
 
 Output:
   Range: [0.000000, 1.999126]
-  Mean: 0.049405
-  Std: 0.260340
+  Mean: 0.059701
+  Std: 0.284937
 
 Pred:
-  Range: [-0.271794, 2.373328]
-  Mean: 0.051426
-  Std: 0.147342
+  Range: [0.000000, 0.006692]
+  Mean: 0.000355
+  Std: 0.000464
 
 Error Metrics:
 --------------------
-MSE:  mean=0.04645171, std=0.04352374
-MAE:  mean=0.06983684, std=0.04125571
-RelErr: mean=0.83590830, std=0.12973924
-PSNR: mean=21.53 dB, std=4.98 dB
+MSE:  mean=0.08471097, std=0.07362339
+MAE:  mean=0.06001921, std=0.04277864
+RelErr: mean=0.99965182, std=0.00022990
+PSNR: mean=19.03 dB, std=5.33 dB
 
 Best/Worst Cases:
 --------------------
-Best PSNR:  Sample 46, PSNR=36.41 dB
-Worst PSNR: Sample 33, PSNR=12.98 dB
+Best PSNR:  Sample 46, PSNR=34.77 dB
+Worst PSNR: Sample 3, PSNR=11.15 dB

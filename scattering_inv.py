@@ -5,7 +5,10 @@ code for scattering 2D Inverse problem: BCR-Net
 """
 from __future__ import absolute_import
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+# Force TensorFlow to use FP32
+# os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '0'
+# os.environ['TF_ENABLE_AUTO_MIXED_PRECISION_GRAPH_REWRITE'] = '0'
 
 import os.path
 from shutil import copyfile
@@ -13,8 +16,22 @@ import sys
 sys.path.append(os.path.abspath('../../'))
 # ----------------- import keras tools ----------------------
 from keras.models import Model
-from keras.layers import Input, Conv2D, Add, Reshape, Lambda, Concatenate, ZeroPadding2D
+from keras.layers import Input, Conv2D, Add, Reshape, Lambda, Concatenate, ZeroPadding2D, Activation, BatchNormalization
 from keras import backend as K
+# from keras import backend as K
+# K.set_floatx('float32')
+import tensorflow as tf
+
+# Force CPU usage
+config = tf.ConfigProto(device_count={'GPU': 0})
+config.allow_soft_placement = True
+sess = tf.Session(config=config)
+K.set_session(sess)
+print("✅ TensorFlow configured to use CPU only")
+# we need gradient clipping - jma
+# also, im swapping to Adam
+from keras.optimizers import Nadam, Adam
+
 # from keras.utils import plot_model
 
 from mnn.layers import CNNK1D, CNNR1D, CNNI1D, WaveLetC1D, InvWaveLetC1D
@@ -42,13 +59,13 @@ parser.add_argument('--noise', type=float, default=0, metavar='noise',
                     help='noise on the measure data (default: %(default)s)')
 parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                     help='learning rate for the first round (default: %(default)s)')
-parser.add_argument('--batch-size', type=int, default=32, metavar='N',
+parser.add_argument('--batch-size', type=int, default=16, metavar='N',
                     help='batch size (default: %(default)s)')
 parser.add_argument('--verbose', type=int, default=2, metavar='N',
                     help='verbose (default: %(default)s)')
 parser.add_argument('--output-suffix', type=str, default=None, metavar='N',
                     help='suffix output filename(default: )')
-parser.add_argument('--percent', type=float, default=4./5., metavar='precent',
+parser.add_argument('--percent', type=float, default=.3/.4, metavar='precent',
                     help='percentage of number of total data(default: %(default)s)')
 parser.add_argument('--initialvalue', type=str, default=None, metavar='filename',
                     help='filename storing the weights of the model (default: '')')
@@ -114,16 +131,16 @@ InputArray = np.array(InputArray).T.reshape(Nsamples, 100, 100)
 OutputArray = fin['image'][:]
 OutputArray = np.array(OutputArray).T.reshape(Nsamples, 100, 100)
 
-# zero pad images to 128x128
-
-InputArray= np.pad(InputArray, ((0, 0), (14, 14), (14, 14)), mode='constant', constant_values=0)
-OutputArray= np.pad(OutputArray, ((0, 0), (14, 14), (14, 14)), mode='constant', constant_values=0)
-
 Nsamples, Ns, Nd = InputArray.shape
 assert OutputArray.shape[0] == Nsamples
 Nsamples, Nt, Nr = OutputArray.shape
-
+# Nd *= 2
+# tmp = InputArray
+# tmp2 = np.concatenate([tmp[:, Ns//2:Ns, :], tmp[:, 0:Ns//2, :]], axis=1)
+# InputArray = np.concatenate([tmp, tmp2], axis=2)
+# InputArray = InputArray[:, :, Nd//4:3*Nd//4]
 print('Reading data finished')
+Nsamples, Ns, Nd = InputArray.shape
 print(f'Input shape is {InputArray.shape}')
 print(f'Output shape is {OutputArray.shape}')
 
@@ -232,23 +249,18 @@ def TriangleAdd(X, Y, alpha):
 
 
 # ---------- architecture of W -------------------
-bc = 'zero'
+bc = 'period'
 w_comp = args.w_comp
 w_interp = w_comp
-L = math.floor(math.log2(Ns)) - 2  # number of levels
+L = math.floor(math.log2(Ns)) - 4 # number of levels
 m = Ns // 2**L     # size of the coarse grid
 m = 2 * ((m+1)//2) - 1
-w = 2 * 3   # support of the wavelet function
+w = 2 * 3    # support of the wavelet function
 n_b = 5      # bandsize of the matrix
 output("(L, m) = (%d, %d)" % (L, m))
 
-
-print(f"Initial input shape: {n_input}")  # (128, 128)
-
 Ipt = Input(shape=n_input)
-print(f"Input layer shape: {Ipt.shape}")
 Ipt_c = CNNK1D(alpha, w_comp, activation='linear', bc_padding=bc)(Ipt)
-print(f"After first CNNK1D layer shape: {Ipt_c.shape}")  # (128, 128, alpha)
 
 bt_list = (L+1) * [None]
 b = Ipt_c
@@ -323,7 +335,7 @@ output('number of params = %d' % model.count_params())
 
 if args.initialvalue is None:  # model is not pre-trained, use multiple outputs to train it first
     model_multihead = Model(inputs=Ipt, outputs=[Opt, Img])
-    model_multihead.compile(loss='mean_squared_error', optimizer='Nadam', loss_weights=[1., 1.])
+    model_multihead.compile(loss='mean_squared_error', optimizer='Nadam', loss_weights=[.5, .5])
     model_multihead.optimizer.schedule_decay = (0.004)
     output('number of params = %d' % model_multihead.count_params())
     save_best_model_mh = SaveBestModel(modelfilename, check_result=check_result_mh, period=1,
@@ -341,9 +353,9 @@ if args.initialvalue is None:  # model is not pre-trained, use multiple outputs 
         model_multihead.load_weights(modelfilename, by_name=False)  # re-load the best model
         save_best_model_mh.best_epoch_update = n_epochs_pre
 
-    save_best_model = SaveBestModel(modelfilename, check_result=check_result, period=1,
-                                    patience=10, output=output, test_weight=1., verbose=2)
-    save_best_model.start = save_best_model_mh.start
+    # save_best_model = SaveBestModel(modelfilename, check_result=check_result, period=1,
+    #                                 patience=10, output=output, test_weight=1., verbose=2)
+    # save_best_model.start = save_best_model_mh.start
     save_best_model = save_best_model_mh
     save_best_model.check_result = check_result
     save_best_model.test_weight = 1.
