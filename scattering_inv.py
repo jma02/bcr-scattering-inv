@@ -22,12 +22,13 @@ from keras import backend as K
 # K.set_floatx('float32')
 import tensorflow as tf
 
-# Force CPU usage
-config = tf.ConfigProto(device_count={'GPU': 0})
-config.allow_soft_placement = True
-sess = tf.Session(config=config)
-K.set_session(sess)
-print("✅ TensorFlow configured to use CPU only")
+# Force CPU usage unless on DARWIN
+# config = tf.ConfigProto(device_count={'GPU': 0})
+# config.allow_soft_placement = True
+# sess = tf.Session(config=config)
+# K.set_session(sess)
+# print("TensorFLow configured to use CPU only")
+
 # we need gradient clipping - jma
 # also, im swapping to Adam
 from keras.optimizers import Nadam, Adam
