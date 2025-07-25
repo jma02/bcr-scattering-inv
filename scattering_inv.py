@@ -27,7 +27,7 @@ import tensorflow as tf
 # config.allow_soft_placement = True
 # sess = tf.Session(config=config)
 # K.set_session(sess)
-# print("TensorFLow configured to use CPU only")
+# print("TensorFlow configured to use CPU only")
 
 # we need gradient clipping - jma
 # also, im swapping to Adam
