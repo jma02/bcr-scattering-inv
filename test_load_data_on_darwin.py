@@ -1,4 +1,5 @@
 import h5py
+import numpy as np 
 
 print('Reading data...')
 fin = h5py.File("data/merged_data.hdf5", 'r')

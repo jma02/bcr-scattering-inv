@@ -1,4 +1,4 @@
-name: base
+name: tf113
 channels:
   - defaults
 dependencies:
@@ -102,4 +102,4 @@ dependencies:
   - zlib=1.2.13
   - zstandard=0.23.0
   - zstd=1.5.6
-prefix: /home/3891/miniconda3
+prefix: /home/johnma/miniconda3/envs/tf113
